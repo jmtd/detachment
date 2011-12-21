@@ -1,0 +1,23 @@
+detachment
+
+Removes attachments from RFC822-format mail files, replacing them with a
+description of where to find them.
+
+Very early stages, lots of missing pieces.
+
+Usage:
+
+   customize file (as below)
+	./detachment <some-file>
+
+Modifies files in-place.
+
+Customisations:
+
+detachment saves copies of attachments to a local folder. That local
+folder is defined by the variable 'bucket' towards the top of the
+file.
+
+The assumption is that you will make that available at a URL somewhere.  That
+URL is defined near the top of the file as a function parameterized over the
+SHA1 sum (expressed in hex) of the file.

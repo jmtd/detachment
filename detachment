@@ -1,0 +1,145 @@
+#!/usr/bin/python
+# coding=utf-8
+
+# Copyright © 2011 Jon Dowland <jmtd@debian.org>
+# Released under the terms of the GNU Public Licence, version 2
+# see LICENSE for details
+
+import email, sys, os
+import hashlib
+
+# this should be personalised
+def urlfn(sha1):
+  return "https://files.example.org/sha1/%s" % sha1
+
+# where stuff is saved locally
+bucket = "./bucket"
+
+imagetypes = """
+
+  image/jpeg
+  image/jpg
+  image/png
+  image/gif
+  image/tiff
+  image/bmp
+  image/pjpeg
+
+""".split()
+
+detachtypes = """
+
+  application/vnd.openxmlformats-officedocument.wordprocessingml.document
+  application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+  application/msword
+  application/pdf
+  application-octet/stream
+  application/octet-stream
+  application/vnd.ms-publisher
+  application/x-zip-compressed
+  application/zip
+  application/rtf
+  application/vnd.ms-excel
+  application/x-msexcel
+  application/vnd.oasis.opendocument.spreadsheet
+  application/vnd.oasis.opendocument.text
+  application/vnd.sun.xml.calc.template
+  application/vnd.ms-project
+  application/vnd.visio
+  audio/x-wav
+  application/x-gzip
+  application/x-shellscript
+  text/csv
+  application/x-compressed
+  application/vnd.openxmlformats-officedocument.presentationml.presentation
+  video/x-flv
+  video/x-fl
+  video/mp4
+  application/applefile
+  application/xml
+  text/rtf
+  text/xml
+  application/vnd.ms-excel.sheet.binary.macroenabled.12
+
+""".split() + imagetypes
+
+ignoretypes="""
+
+  text/html
+  text/plain
+  text/calendar
+  application/pgp-signature
+  text/x-moz-deleted 
+  application/pgp-keys
+  application/pgp-encrypted
+  application/ics
+  text/x-vcard
+  application/x-pkcs7-signature
+
+""".split()
+
+# XXX: magnets are a good idea
+# magnet: magnet:?xt=urn:sha1:$(sha1sumbase32)s
+replacestring = """
+what: This attachment was moved to the URL below
+url: %(url)s
+type: %(content_type)s
+filename: %(filename)s
+parameters: %(params)s
+"""
+
+def destroy(msg):
+  params = msg.get_params()[1:] 
+  params = ', '.join([ '='.join(p) for p in params ])
+  ct = msg.get_content_type()
+  fn = msg.get_filename()
+
+  orig = msg.get_payload(decode=True)
+  sha1sum = hashlib.sha1(orig).hexdigest()
+  bn,ext = os.path.splitext(fn)
+
+  replace = replacestring % dict(content_type=ct, 
+                                 filename=fn, 
+                                 params=params,
+                                 sha1sum=sha1sum,
+                                 ext=ext,
+                                 url=urlfn(sha1sum)
+                                )
+
+  f = open("%s/%s%s"%(bucket,sha1sum,ext),"w")
+  f.write(orig)
+  f.close()
+
+  # create symlink by sender?
+  # create symlink by type
+  # if msg.get_content_type() in imagetypes:
+    #os.symlink("../../%s"%fn, "bucket/by-type/images/%s"%fn)
+
+  msg.set_payload(replace)
+  for k,v in msg.get_params()[1:]:
+    msg.del_param(k)
+  msg.set_type('text/plain')
+  del msg['Content-Transfer-Encoding']
+  del msg['Content-Disposition']
+  return msg
+
+def sanitise(msg):
+  if msg.is_multipart():
+    payload = [ sanitise(x) for x in msg.get_payload() ]
+    msg.set_payload(payload)
+    return msg
+  # XXX: this is unmaintainable.  A better idea is to use ignoretypes
+  # and a metric based on the size of the attachment, if it can be
+  # reliably determined, vs. the size of the replacement text.
+  if msg.get_content_type() in detachtypes:
+    return destroy(msg)
+  elif msg.get_content_type() not in ignoretypes:
+    pass
+    print "unknown type: '%s'" %msg.get_content_type()
+  return msg
+
+s = open(sys.argv[1]).read()
+m = email.message_from_string(s)
+f = open(sys.argv[1],"w")
+f.write(sanitise(m).as_string(unixfrom=True))
+f.close()
